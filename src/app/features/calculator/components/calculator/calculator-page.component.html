@@ -1,0 +1,101 @@
+<div class="calculator-container">
+  <div class="calculator-card">
+
+    <!-- Header -->
+    <div class="calculator-header">
+      <h1 class="calculator-title">Derivative Calculator</h1>
+      <p class="calculator-subtitle">Enter an expression using the buttons below</p>
+    </div>
+
+    <!-- Expression Display -->
+    <div class="expression-section">
+      <mat-form-field appearance="outline" class="expression-field">
+        <mat-label>f(x)</mat-label>
+        <input
+          matInput
+          [(ngModel)]="expression"
+          placeholder="Click buttons or type an expression..."
+          class="expression-input"
+          spellcheck="false"
+          autocomplete="off"
+        />
+        <button
+          mat-icon-button
+          matSuffix
+          (click)="backspace()"
+          [disabled]="!expression"
+          matTooltip="Backspace"
+        >
+          <mat-icon>backspace</mat-icon>
+        </button>
+      </mat-form-field>
+    </div>
+
+    <!-- Button Groups -->
+    <div class="button-groups">
+      <div class="button-group" *ngFor="let group of buttonGroups">
+        <div class="group-label">{{ group.label }}</div>
+        <div class="button-row">
+          <button
+            mat-stroked-button
+            *ngFor="let btn of group.buttons"
+            (click)="appendToExpression(btn.value)"
+            [matTooltip]="btn.tooltip || ''"
+            [class]="'calc-btn calc-btn--' + btn.variant"
+          >
+            {{ btn.display }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Action Buttons -->
+    <div class="action-buttons">
+      <button
+        mat-stroked-button
+        color="warn"
+        class="action-btn action-btn--clear"
+        (click)="clear()"
+        [disabled]="!expression && !result()"
+      >
+        <mat-icon>clear</mat-icon>
+        Clear
+      </button>
+      <button
+        mat-raised-button
+        color="primary"
+        class="action-btn action-btn--calculate"
+        (click)="calculate()"
+        [disabled]="!expression || loading()"
+      >
+        <mat-spinner *ngIf="loading()" diameter="18" class="btn-spinner"></mat-spinner>
+        <mat-icon *ngIf="!loading()">functions</mat-icon>
+        {{ loading() ? 'Computing...' : 'Calculate Derivative' }}
+      </button>
+    </div>
+
+    <!-- Results -->
+    <app-results [result]="result()" [loading]="loading()" [error]="error()"></app-results>
+
+    <!-- Next Derivative Button -->
+    <div class="next-derivative-row" *ngIf="derivatives().length">
+      <button
+        mat-stroked-button
+        class="next-derivative-btn"
+        (click)="calculateNext()"
+        [disabled]="loading()"
+        [matTooltip]="'Differentiate ' + derivativeLabel(derivatives().length) + ' to get ' + derivativeLabel(derivatives().length + 1)"
+      >
+        <mat-icon>arrow_forward</mat-icon>
+        Calculate {{ derivativeLabel(derivatives().length + 1) }}
+      </button>
+    </div>
+
+    <!-- Graph -->
+    <app-graph
+      [expression]="expression"
+      [derivativeExpressions]="derivatives()"
+    ></app-graph>
+
+  </div>
+</div>

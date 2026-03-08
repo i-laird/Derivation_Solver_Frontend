@@ -1,0 +1,56 @@
+<div class="results-container" *ngIf="hasContent" @fadeIn>
+
+  <!-- Error State -->
+  <div class="error-card" *ngIf="error">
+    <div class="error-icon">
+      <mat-icon>error_outline</mat-icon>
+    </div>
+    <div class="error-content">
+      <div class="error-title">Calculation Error</div>
+      <div class="error-message">{{ error }}</div>
+    </div>
+  </div>
+
+  <!-- Success State -->
+  <div class="result-card" *ngIf="result && !error">
+    <div class="result-divider">
+      <mat-divider></mat-divider>
+    </div>
+
+    <div class="result-header">
+      <mat-icon class="result-icon">check_circle</mat-icon>
+      <span class="result-label">Derivative Result</span>
+    </div>
+
+    <div class="result-rows">
+      <!-- Antiderivative -->
+      <div class="result-row">
+        <div class="result-row-label">
+          <span class="math-label">f'(x) =</span>
+        </div>
+        <div class="result-row-value">
+          <code class="math-expression">{{ result.antiderivative }}</code>
+          <button
+            mat-icon-button
+            class="copy-btn"
+            (click)="copyToClipboard(result.antiderivative)"
+            matTooltip="Copy expression"
+          >
+            <mat-icon>content_copy</mat-icon>
+          </button>
+        </div>
+      </div>
+
+      <!-- Evaluated result (if present) -->
+      <div class="result-row" *ngIf="result.result !== null && result.result !== undefined">
+        <div class="result-row-label">
+          <span class="math-label">Evaluated =</span>
+        </div>
+        <div class="result-row-value">
+          <code class="math-expression math-expression--value">{{ result.result }}</code>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
