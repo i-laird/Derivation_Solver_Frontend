@@ -35,6 +35,13 @@
             ],
             "polyfills": [
               "zone.js"
+            ],
+            "allowedCommonJsDependencies": [
+              "seedrandom",
+              "typed-function",
+              "javascript-natural-sort",
+              "tiny-emitter",
+              "escape-latex"
             ]
           },
           "configurations": {

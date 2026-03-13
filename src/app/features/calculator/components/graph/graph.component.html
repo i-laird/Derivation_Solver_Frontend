@@ -1,0 +1,19 @@
+<div class="graph-wrapper" *ngIf="hasData">
+  <div class="graph-header">
+    <mat-icon class="graph-icon">show_chart</mat-icon>
+    <span class="graph-label">Graph</span>
+  </div>
+
+  <div class="canvas-container">
+    <canvas #chartCanvas></canvas>
+  </div>
+
+  <div class="equations">
+    <div class="equation-row" *ngFor="let curve of curves">
+      <span class="equation-swatch" [style.background]="curve.color"></span>
+      <span class="equation-label" [style.color]="curve.color">{{ curve.label }}</span>
+      <span class="equation-equals">=</span>
+      <code class="equation-expr">{{ curve.expression }}</code>
+    </div>
+  </div>
+</div>
