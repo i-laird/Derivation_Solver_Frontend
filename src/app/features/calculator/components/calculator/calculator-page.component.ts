@@ -18,6 +18,13 @@ interface EquationEntry {
   withRespectToError: string | null;
 }
 
+interface JacobianCell {
+  expression: string;
+  value: number | null;
+  loading: boolean;
+  error: string | null;
+}
+
 interface ButtonGroup {
   label: string;
   buttons: CalcButton[];
@@ -39,6 +46,9 @@ interface CalcButton {
 export class CalculatorPageComponent {
   equations = signal<EquationEntry[]>([this.createEquation()]);
   activeEquationIndex = signal(0);
+  jacobianMatrix = signal<JacobianCell[][] | null>(null);
+  jacobianVariables = signal<string[]>([]);
+  jacobianLoading = signal(false);
 
   readonly buttonGroups: ButtonGroup[] = [
     {
@@ -397,5 +407,80 @@ export class CalculatorPageComponent {
 
   trackByIndex(index: number): number {
     return index;
+  }
+
+  computeJacobian(): void {
+    const eqs = this.equations();
+    const validEqs = eqs.filter(eq => eq.expression.trim());
+    if (!validEqs.length) return;
+
+    // Collect all unique variables across all equations
+    const allVars = [...new Set(
+      validEqs.flatMap(eq => this.extractVariables(eq.expression))
+    )].sort();
+
+    if (!allVars.length) return;
+
+    this.jacobianVariables.set(allVars);
+    this.jacobianLoading.set(true);
+
+    // Initialise all cells as loading
+    const matrix: JacobianCell[][] = validEqs.map(() =>
+      allVars.map(() => ({ expression: '', value: null, loading: true, error: null }))
+    );
+    this.jacobianMatrix.set(matrix);
+
+    // Fire one request per cell
+    let pending = validEqs.length * allVars.length;
+    validEqs.forEach((eq, row) => {
+      allVars.forEach((variable, col) => {
+        const request = {
+          expression: eq.expression,
+          withRespectTo: variable,
+          points: this.buildPoints(eq.variables),
+        };
+        this.calculatorApi.getDerivative(request).subscribe({
+          next: (response) => {
+            this.jacobianMatrix.update(m => {
+              if (!m) return m;
+              const updated = m.map(r => [...r]);
+              updated[row][col] = {
+                expression: response.antiderivative,
+                value: response.result,
+                loading: false,
+                error: null,
+              };
+              return updated;
+            });
+            if (--pending === 0) this.jacobianLoading.set(false);
+          },
+          error: (err) => {
+            this.jacobianMatrix.update(m => {
+              if (!m) return m;
+              const updated = m.map(r => [...r]);
+              updated[row][col] = {
+                expression: '',
+                value: null,
+                loading: false,
+                error: err?.error?.message || 'Error',
+              };
+              return updated;
+            });
+            if (--pending === 0) this.jacobianLoading.set(false);
+          }
+        });
+      });
+    });
+  }
+
+  clearJacobian(): void {
+    this.jacobianMatrix.set(null);
+    this.jacobianVariables.set([]);
+  }
+
+  get jacobianEquationLabels(): string[] {
+    return this.equations()
+      .filter(eq => eq.expression.trim())
+      .map((eq, i) => `f${i + 1}`);
   }
 }

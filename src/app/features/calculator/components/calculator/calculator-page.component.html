@@ -187,6 +187,65 @@
       </button>
     </div>
 
+    <!-- Jacobian -->
+    <div class="jacobian-section" *ngIf="equations().length >= 1">
+      <div class="jacobian-header">
+        <div class="jacobian-title">
+          <mat-icon>grid_on</mat-icon>
+          Jacobian Matrix
+        </div>
+        <div class="jacobian-actions">
+          <button
+            mat-raised-button
+            color="accent"
+            class="jacobian-btn"
+            (click)="computeJacobian()"
+            [disabled]="jacobianLoading()"
+          >
+            <mat-spinner *ngIf="jacobianLoading()" diameter="18" class="btn-spinner"></mat-spinner>
+            <mat-icon *ngIf="!jacobianLoading()">calculate</mat-icon>
+            {{ jacobianLoading() ? 'Computing...' : 'Compute Jacobian' }}
+          </button>
+          <button
+            mat-icon-button
+            *ngIf="jacobianMatrix()"
+            (click)="clearJacobian()"
+            matTooltip="Clear Jacobian"
+            class="jacobian-clear-btn"
+          >
+            <mat-icon>close</mat-icon>
+          </button>
+        </div>
+      </div>
+      <p class="jacobian-hint">
+        Computes ∂f<sub>i</sub>/∂x<sub>j</sub> for every equation × every variable at each equation's evaluation point.
+      </p>
+
+      <div class="jacobian-table-wrapper" *ngIf="jacobianMatrix()">
+        <table class="jacobian-table">
+          <thead>
+            <tr>
+              <th class="jacobian-row-header"></th>
+              <th *ngFor="let v of jacobianVariables()" class="jacobian-col-header">
+                ∂/∂{{ v }}
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr *ngFor="let row of jacobianMatrix(); let i = index">
+              <td class="jacobian-row-header">{{ jacobianEquationLabels[i] }}</td>
+              <td *ngFor="let cell of row" class="jacobian-cell" [class.jacobian-cell--error]="cell.error" [class.jacobian-cell--loading]="cell.loading">
+                <mat-spinner *ngIf="cell.loading" diameter="20"></mat-spinner>
+                <span *ngIf="!cell.loading && !cell.error" class="jacobian-expr">{{ cell.expression }}</span>
+                <span *ngIf="!cell.loading && cell.value !== null && !cell.error" class="jacobian-value">= {{ cell.value }}</span>
+                <span *ngIf="cell.error" class="jacobian-error">{{ cell.error }}</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
     <!-- Shared Button Pad -->
     <div class="button-pad-section">
       <div class="button-pad-label">
