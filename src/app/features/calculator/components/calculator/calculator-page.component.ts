@@ -160,6 +160,7 @@ export class CalculatorPageComponent {
       updated[idx] = { ...updated[idx], expression: updated[idx].expression + value };
       return updated;
     });
+    this.syncVariables(idx, this.equations()[idx].expression);
   }
 
   backspaceForIndex(index: number): void {
@@ -246,6 +247,31 @@ export class CalculatorPageComponent {
     this.equations.update(eqs => {
       const updated = [...eqs];
       updated[equationIndex] = { ...updated[equationIndex], expression: value };
+      return updated;
+    });
+    this.syncVariables(equationIndex, value);
+  }
+
+  private static readonly KNOWN_FUNCTIONS =
+    /\b(sin|cos|tan|sec|csc|cot|sinh|cosh|tanh|sech|csch|coth|arcsin|arccos|arctan|arcsec|arccsc|arccot|ln|log|sqrt|abs)\b/g;
+
+  private extractVariables(expression: string): string[] {
+    const cleaned = expression.replace(CalculatorPageComponent.KNOWN_FUNCTIONS, '');
+    const matches = cleaned.match(/[a-z]/g);
+    return matches ? [...new Set(matches)] : [];
+  }
+
+  private syncVariables(equationIndex: number, expression: string): void {
+    const detected = this.extractVariables(expression);
+    this.equations.update(eqs => {
+      const updated = [...eqs];
+      const eq = { ...updated[equationIndex] };
+      const existingKeys = new Set(eq.variables.map(v => v.key.trim()));
+      const toAdd = detected.filter(v => !existingKeys.has(v));
+      if (toAdd.length > 0) {
+        eq.variables = [...eq.variables, ...toAdd.map(k => ({ key: k, value: 0 }))];
+        updated[equationIndex] = eq;
+      }
       return updated;
     });
   }
