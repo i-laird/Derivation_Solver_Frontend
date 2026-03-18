@@ -4,98 +4,214 @@
     <!-- Header -->
     <div class="calculator-header">
       <h1 class="calculator-title">Derivative Calculator</h1>
-      <p class="calculator-subtitle">Enter an expression using the buttons below</p>
+      <p class="calculator-subtitle">Enter expressions using the buttons below or type directly</p>
     </div>
 
-    <!-- Expression Display -->
-    <div class="expression-section">
-      <mat-form-field appearance="outline" class="expression-field">
-        <mat-label>f(x)</mat-label>
-        <input
-          matInput
-          [(ngModel)]="expression"
-          placeholder="Click buttons or type an expression..."
-          class="expression-input"
-          spellcheck="false"
-          autocomplete="off"
-        />
-        <button
-          mat-icon-button
-          matSuffix
-          (click)="backspace()"
-          [disabled]="!expression"
-          matTooltip="Backspace"
-        >
-          <mat-icon>backspace</mat-icon>
-        </button>
-      </mat-form-field>
-    </div>
+    <!-- Equation Panels -->
+    <div class="equations-list">
+      <div
+        class="equation-panel"
+        [class.equation-panel--active]="activeEquationIndex() === i"
+        *ngFor="let eq of equations(); let i = index; trackBy: trackByIndex"
+        (click)="setActiveEquation(i)"
+      >
 
-    <!-- Button Groups -->
-    <div class="button-groups">
-      <div class="button-group" *ngFor="let group of buttonGroups">
-        <div class="group-label">{{ group.label }}</div>
-        <div class="button-row">
+        <!-- Panel Header -->
+        <div class="equation-panel-header">
+          <span class="equation-panel-label">Equation {{ i + 1 }}</span>
           <button
-            mat-stroked-button
-            *ngFor="let btn of group.buttons"
-            (click)="appendToExpression(btn.value)"
-            [matTooltip]="btn.tooltip || ''"
-            [class]="'calc-btn calc-btn--' + btn.variant"
+            mat-icon-button
+            class="remove-equation-btn"
+            *ngIf="equations().length > 1"
+            (click)="$event.stopPropagation(); removeEquation(i)"
+            matTooltip="Remove equation"
           >
-            {{ btn.display }}
+            <mat-icon>delete</mat-icon>
           </button>
         </div>
+
+        <!-- Expression Input -->
+        <div class="expression-section">
+          <mat-form-field appearance="outline" class="expression-field">
+            <mat-label>f(x, y, ...)</mat-label>
+            <input
+              matInput
+              [value]="eq.expression"
+              (input)="updateExpression(i, $any($event.target).value)"
+              (focus)="setActiveEquation(i)"
+              placeholder="Click buttons or type an expression..."
+              class="expression-input"
+              spellcheck="false"
+              autocomplete="off"
+            />
+            <button
+              mat-icon-button
+              matSuffix
+              (click)="$event.stopPropagation(); backspaceForIndex(i)"
+              [disabled]="!eq.expression"
+              matTooltip="Backspace"
+            >
+              <mat-icon>backspace</mat-icon>
+            </button>
+          </mat-form-field>
+        </div>
+
+        <!-- Differentiate With Respect To -->
+        <div class="wrt-section">
+          <mat-form-field appearance="outline" class="wrt-field">
+            <mat-label>Differentiate with respect to</mat-label>
+            <input
+              matInput
+              [value]="eq.withRespectTo"
+              (input)="updateWithRespectTo(i, $any($event.target).value)"
+              (focus)="setActiveEquation(i)"
+              placeholder="x"
+              maxlength="1"
+              class="wrt-input"
+              autocomplete="off"
+            />
+            <mat-error *ngIf="eq.withRespectToError">{{ eq.withRespectToError }}</mat-error>
+          </mat-form-field>
+        </div>
+
+        <!-- Variable Values -->
+        <div class="variables-section">
+          <div class="variables-label">Evaluate at:</div>
+          <div class="variable-entries">
+            <div class="variable-entry" *ngFor="let v of eq.variables; let vi = index; trackBy: trackByIndex">
+              <mat-form-field appearance="outline" class="var-key-field">
+                <mat-label>Variable</mat-label>
+                <input
+                  matInput
+                  [value]="v.key"
+                  (input)="updateVariableKey(i, vi, $any($event.target).value)"
+                  (focus)="setActiveEquation(i)"
+                  placeholder="x"
+                  maxlength="1"
+                  autocomplete="off"
+                />
+              </mat-form-field>
+              <span class="var-equals">=</span>
+              <mat-form-field appearance="outline" class="var-value-field">
+                <mat-label>Value</mat-label>
+                <input
+                  matInput
+                  type="number"
+                  [value]="v.value"
+                  (input)="updateVariableValue(i, vi, +$any($event.target).value)"
+                  (focus)="setActiveEquation(i)"
+                  placeholder="0"
+                  autocomplete="off"
+                />
+              </mat-form-field>
+              <button
+                mat-icon-button
+                class="remove-var-btn"
+                (click)="$event.stopPropagation(); removeVariable(i, vi)"
+                matTooltip="Remove variable"
+              >
+                <mat-icon>remove_circle_outline</mat-icon>
+              </button>
+            </div>
+          </div>
+          <button
+            mat-stroked-button
+            class="add-var-btn"
+            (click)="$event.stopPropagation(); addVariable(i)"
+          >
+            <mat-icon>add</mat-icon>
+            Add Variable
+          </button>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="action-buttons">
+          <button
+            mat-stroked-button
+            color="warn"
+            class="action-btn action-btn--clear"
+            (click)="$event.stopPropagation(); clearForIndex(i)"
+            [disabled]="!eq.expression && !eq.result"
+          >
+            <mat-icon>clear</mat-icon>
+            Clear
+          </button>
+          <button
+            mat-raised-button
+            color="primary"
+            class="action-btn action-btn--calculate"
+            (click)="$event.stopPropagation(); calculateForIndex(i)"
+            [disabled]="!eq.expression || eq.loading"
+          >
+            <mat-spinner *ngIf="eq.loading" diameter="18" class="btn-spinner"></mat-spinner>
+            <mat-icon *ngIf="!eq.loading">functions</mat-icon>
+            {{ eq.loading ? 'Computing...' : 'Calculate Derivative' }}
+          </button>
+        </div>
+
+        <!-- Results -->
+        <app-results [result]="eq.result" [loading]="eq.loading" [error]="eq.error"></app-results>
+
+        <!-- Next Derivative Button -->
+        <div class="next-derivative-row" *ngIf="eq.derivatives.length">
+          <button
+            mat-stroked-button
+            class="next-derivative-btn"
+            (click)="$event.stopPropagation(); calculateNextForIndex(i)"
+            [disabled]="eq.loading"
+            [matTooltip]="'Differentiate ' + derivativeLabel(eq.derivatives.length) + ' to get ' + derivativeLabel(eq.derivatives.length + 1)"
+          >
+            <mat-icon>arrow_forward</mat-icon>
+            Calculate {{ derivativeLabel(eq.derivatives.length + 1) }}
+          </button>
+        </div>
+
+        <!-- Graph -->
+        <app-graph
+          [expression]="eq.expression"
+          [derivativeExpressions]="eq.derivatives"
+        ></app-graph>
+
       </div>
     </div>
 
-    <!-- Action Buttons -->
-    <div class="action-buttons">
+    <!-- Add Equation Button -->
+    <div class="add-equation-row">
       <button
         mat-stroked-button
-        color="warn"
-        class="action-btn action-btn--clear"
-        (click)="clear()"
-        [disabled]="!expression && !result()"
+        class="add-equation-btn"
+        (click)="addEquation()"
       >
-        <mat-icon>clear</mat-icon>
-        Clear
-      </button>
-      <button
-        mat-raised-button
-        color="primary"
-        class="action-btn action-btn--calculate"
-        (click)="calculate()"
-        [disabled]="!expression || loading()"
-      >
-        <mat-spinner *ngIf="loading()" diameter="18" class="btn-spinner"></mat-spinner>
-        <mat-icon *ngIf="!loading()">functions</mat-icon>
-        {{ loading() ? 'Computing...' : 'Calculate Derivative' }}
+        <mat-icon>add</mat-icon>
+        Add Equation
       </button>
     </div>
 
-    <!-- Results -->
-    <app-results [result]="result()" [loading]="loading()" [error]="error()"></app-results>
+    <!-- Shared Button Pad -->
+    <div class="button-pad-section">
+      <div class="button-pad-label">
+        Button pad — appends to
+        <strong>Equation {{ activeEquationIndex() + 1 }}</strong>
+      </div>
 
-    <!-- Next Derivative Button -->
-    <div class="next-derivative-row" *ngIf="derivatives().length">
-      <button
-        mat-stroked-button
-        class="next-derivative-btn"
-        (click)="calculateNext()"
-        [disabled]="loading()"
-        [matTooltip]="'Differentiate ' + derivativeLabel(derivatives().length) + ' to get ' + derivativeLabel(derivatives().length + 1)"
-      >
-        <mat-icon>arrow_forward</mat-icon>
-        Calculate {{ derivativeLabel(derivatives().length + 1) }}
-      </button>
+      <!-- Button Groups -->
+      <div class="button-groups">
+        <div class="button-group" *ngFor="let group of buttonGroups">
+          <div class="group-label">{{ group.label }}</div>
+          <div class="button-row">
+            <button
+              mat-stroked-button
+              *ngFor="let btn of group.buttons"
+              (click)="appendToExpression(btn.value)"
+              [matTooltip]="btn.tooltip || ''"
+              [class]="'calc-btn calc-btn--' + btn.variant"
+            >
+              {{ btn.display }}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
-
-    <!-- Graph -->
-    <app-graph
-      [expression]="expression"
-      [derivativeExpressions]="derivatives()"
-    ></app-graph>
 
   </div>
 </div>

@@ -1,4 +1,5 @@
 export interface DerivativeRequest {
   expression: string;
-  points: number[];
+  withRespectTo: string;
+  points: { [key: string]: number };
 }

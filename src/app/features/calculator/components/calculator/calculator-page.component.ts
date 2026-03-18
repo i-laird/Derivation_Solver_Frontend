@@ -2,6 +2,22 @@ import { Component, signal } from '@angular/core';
 import { DerivativeResponse } from '../../../../models/derivative-response.model';
 import { CalculatorApiService } from '../../../../core/services/calculator-api.service';
 
+interface VariableEntry {
+  key: string;
+  value: number;
+}
+
+interface EquationEntry {
+  expression: string;
+  withRespectTo: string;
+  variables: VariableEntry[];
+  result: DerivativeResponse | null;
+  derivatives: DerivativeResponse[];
+  loading: boolean;
+  error: string | null;
+  withRespectToError: string | null;
+}
+
 interface ButtonGroup {
   label: string;
   buttons: CalcButton[];
@@ -21,17 +37,15 @@ interface CalcButton {
   styleUrls: ['./calculator-page.component.scss']
 })
 export class CalculatorPageComponent {
-  expression = '';
-  result = signal<DerivativeResponse | null>(null);
-  derivatives = signal<DerivativeResponse[]>([]);
-  loading = signal(false);
-  error = signal<string | null>(null);
+  equations = signal<EquationEntry[]>([this.createEquation()]);
+  activeEquationIndex = signal(0);
 
   readonly buttonGroups: ButtonGroup[] = [
     {
       label: 'Variables',
       buttons: [
         { display: 'x', value: 'x', variant: 'primary', tooltip: 'Variable x' },
+        { display: 'y', value: 'y', variant: 'primary', tooltip: 'Variable y' },
         { display: 'e', value: 'e', variant: 'primary', tooltip: "Euler's number" },
         { display: 'π', value: 'pi', variant: 'primary', tooltip: 'Pi' },
       ]
@@ -107,64 +121,255 @@ export class CalculatorPageComponent {
 
   constructor(private calculatorApi: CalculatorApiService) {}
 
-  appendToExpression(value: string): void {
-    this.expression += value;
+  private createEquation(): EquationEntry {
+    return {
+      expression: '',
+      withRespectTo: 'x',
+      variables: [{ key: 'x', value: 0 }],
+      result: null,
+      derivatives: [],
+      loading: false,
+      error: null,
+      withRespectToError: null,
+    };
   }
 
-  backspace(): void {
-    this.expression = this.expression.slice(0, -1);
+  addEquation(): void {
+    this.equations.update(eqs => [...eqs, this.createEquation()]);
+    this.activeEquationIndex.set(this.equations().length - 1);
+  }
+
+  removeEquation(index: number): void {
+    this.equations.update(eqs => eqs.filter((_, i) => i !== index));
+    const current = this.activeEquationIndex();
+    if (current >= this.equations().length) {
+      this.activeEquationIndex.set(this.equations().length - 1);
+    } else if (current === index && index > 0) {
+      this.activeEquationIndex.set(index - 1);
+    }
+  }
+
+  setActiveEquation(index: number): void {
+    this.activeEquationIndex.set(index);
+  }
+
+  appendToExpression(value: string): void {
+    const idx = this.activeEquationIndex();
+    this.equations.update(eqs => {
+      const updated = [...eqs];
+      updated[idx] = { ...updated[idx], expression: updated[idx].expression + value };
+      return updated;
+    });
+  }
+
+  backspaceForIndex(index: number): void {
+    this.equations.update(eqs => {
+      const updated = [...eqs];
+      updated[index] = { ...updated[index], expression: updated[index].expression.slice(0, -1) };
+      return updated;
+    });
+  }
+
+  clearForIndex(index: number): void {
+    this.equations.update(eqs => {
+      const updated = [...eqs];
+      updated[index] = {
+        ...updated[index],
+        expression: '',
+        result: null,
+        derivatives: [],
+        error: null,
+        withRespectToError: null,
+      };
+      return updated;
+    });
+  }
+
+  addVariable(equationIndex: number): void {
+    this.equations.update(eqs => {
+      const updated = [...eqs];
+      const eq = { ...updated[equationIndex] };
+      eq.variables = [...eq.variables, { key: '', value: 0 }];
+      updated[equationIndex] = eq;
+      return updated;
+    });
+  }
+
+  removeVariable(equationIndex: number, varIndex: number): void {
+    this.equations.update(eqs => {
+      const updated = [...eqs];
+      const eq = { ...updated[equationIndex] };
+      eq.variables = eq.variables.filter((_, i) => i !== varIndex);
+      updated[equationIndex] = eq;
+      return updated;
+    });
+  }
+
+  updateVariableKey(equationIndex: number, varIndex: number, key: string): void {
+    this.equations.update(eqs => {
+      const updated = [...eqs];
+      const eq = { ...updated[equationIndex] };
+      const vars = [...eq.variables];
+      vars[varIndex] = { ...vars[varIndex], key };
+      eq.variables = vars;
+      updated[equationIndex] = eq;
+      return updated;
+    });
+  }
+
+  updateVariableValue(equationIndex: number, varIndex: number, value: number): void {
+    this.equations.update(eqs => {
+      const updated = [...eqs];
+      const eq = { ...updated[equationIndex] };
+      const vars = [...eq.variables];
+      vars[varIndex] = { ...vars[varIndex], value };
+      eq.variables = vars;
+      updated[equationIndex] = eq;
+      return updated;
+    });
+  }
+
+  updateWithRespectTo(equationIndex: number, value: string): void {
+    this.equations.update(eqs => {
+      const updated = [...eqs];
+      const eq = { ...updated[equationIndex] };
+      eq.withRespectTo = value;
+      eq.withRespectToError = value.length > 0 && !/^[a-zA-Z]$/.test(value)
+        ? 'Must be a single letter (e.g. x, y)'
+        : null;
+      updated[equationIndex] = eq;
+      return updated;
+    });
+  }
+
+  updateExpression(equationIndex: number, value: string): void {
+    this.equations.update(eqs => {
+      const updated = [...eqs];
+      updated[equationIndex] = { ...updated[equationIndex], expression: value };
+      return updated;
+    });
+  }
+
+  private buildPoints(variables: VariableEntry[]): { [key: string]: number } {
+    const points: { [key: string]: number } = {};
+    for (const v of variables) {
+      if (v.key.trim()) {
+        points[v.key.trim()] = v.value;
+      }
+    }
+    return points;
+  }
+
+  calculateForIndex(index: number): void {
+    const eq = this.equations()[index];
+    if (!eq.expression.trim()) return;
+    if (!/^[a-zA-Z]$/.test(eq.withRespectTo)) {
+      this.equations.update(eqs => {
+        const updated = [...eqs];
+        updated[index] = {
+          ...updated[index],
+          withRespectToError: 'Must be a single letter (e.g. x, y)',
+        };
+        return updated;
+      });
+      return;
+    }
+
+    this.equations.update(eqs => {
+      const updated = [...eqs];
+      updated[index] = {
+        ...updated[index],
+        loading: true,
+        error: null,
+        result: null,
+        derivatives: [],
+      };
+      return updated;
+    });
+
+    const request = {
+      expression: eq.expression,
+      withRespectTo: eq.withRespectTo,
+      points: this.buildPoints(eq.variables),
+    };
+
+    this.calculatorApi.getDerivative(request).subscribe({
+      next: (response) => {
+        this.equations.update(eqs => {
+          const updated = [...eqs];
+          updated[index] = {
+            ...updated[index],
+            result: response,
+            derivatives: [response],
+            loading: false,
+          };
+          return updated;
+        });
+      },
+      error: (err) => {
+        this.equations.update(eqs => {
+          const updated = [...eqs];
+          updated[index] = {
+            ...updated[index],
+            error: err?.error?.message || 'Failed to compute derivative. Check your expression.',
+            loading: false,
+          };
+          return updated;
+        });
+      }
+    });
+  }
+
+  calculateNextForIndex(index: number): void {
+    const eq = this.equations()[index];
+    if (!eq.derivatives.length) return;
+    const nextInput = eq.derivatives[eq.derivatives.length - 1].antiderivative;
+
+    this.equations.update(eqs => {
+      const updated = [...eqs];
+      updated[index] = { ...updated[index], loading: true, error: null };
+      return updated;
+    });
+
+    const request = {
+      expression: nextInput,
+      withRespectTo: eq.withRespectTo,
+      points: this.buildPoints(eq.variables),
+    };
+
+    this.calculatorApi.getDerivative(request).subscribe({
+      next: (response) => {
+        this.equations.update(eqs => {
+          const updated = [...eqs];
+          const prevDerivatives = updated[index].derivatives;
+          updated[index] = {
+            ...updated[index],
+            result: response,
+            derivatives: [...prevDerivatives, response],
+            loading: false,
+          };
+          return updated;
+        });
+      },
+      error: (err) => {
+        this.equations.update(eqs => {
+          const updated = [...eqs];
+          updated[index] = {
+            ...updated[index],
+            error: err?.error?.message || 'Failed to compute derivative. Check your expression.',
+            loading: false,
+          };
+          return updated;
+        });
+      }
+    });
   }
 
   derivativeLabel(order: number): string {
-    const primes = ["'", "''", "'''"];
     return order <= 3 ? `f${'\''.repeat(order)}(x)` : `f⁽${order}⁾(x)`;
   }
 
-  clear(): void {
-    this.expression = '';
-    this.result.set(null);
-    this.derivatives.set([]);
-    this.error.set(null);
-  }
-
-  calculate(): void {
-    if (!this.expression.trim()) return;
-    this.loading.set(true);
-    this.error.set(null);
-    this.result.set(null);
-    this.derivatives.set([]);
-
-    this.calculatorApi.getDerivative({ expression: this.expression, points: [0] }).subscribe({
-      next: (response) => {
-        this.result.set(response);
-        this.derivatives.set([response]);
-        this.loading.set(false);
-      },
-      error: (err) => {
-        this.error.set(err?.error?.message || 'Failed to compute derivative. Check your expression.');
-        this.loading.set(false);
-      }
-    });
-  }
-
-  calculateNext(): void {
-    const current = this.derivatives();
-    if (!current.length) return;
-    const nextInput = current[current.length - 1].antiderivative;
-
-    this.loading.set(true);
-    this.error.set(null);
-
-    this.calculatorApi.getDerivative({ expression: nextInput, points: [0] }).subscribe({
-      next: (response) => {
-        this.derivatives.update(prev => [...prev, response]);
-        this.result.set(response);
-        this.loading.set(false);
-      },
-      error: (err) => {
-        this.error.set(err?.error?.message || 'Failed to compute derivative. Check your expression.');
-        this.loading.set(false);
-      }
-    });
+  trackByIndex(index: number): number {
+    return index;
   }
 }
