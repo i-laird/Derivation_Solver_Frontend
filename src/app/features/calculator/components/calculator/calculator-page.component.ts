@@ -1,6 +1,10 @@
-import { Component, signal } from '@angular/core';
+import { Component, signal, AfterViewChecked, OnDestroy, ViewChildren, QueryList, ElementRef } from '@angular/core';
 import { DerivativeResponse } from '../../../../models/derivative-response.model';
 import { CalculatorApiService } from '../../../../core/services/calculator-api.service';
+import { Chart, registerables } from 'chart.js';
+import { evaluate } from 'mathjs';
+
+Chart.register(...registerables);
 
 interface VariableEntry {
   key: string;
@@ -37,13 +41,18 @@ interface CalcButton {
   variant?: 'primary' | 'operator' | 'function' | 'control' | 'number';
 }
 
+const JAC_COLORS = ['#e91e63', '#4caf50', '#ff9800', '#9c27b0', '#00bcd4', '#795548'];
+
 @Component({
   selector: 'app-calculator-page',
   standalone: false,
   templateUrl: './calculator-page.component.html',
   styleUrls: ['./calculator-page.component.scss']
 })
-export class CalculatorPageComponent {
+export class CalculatorPageComponent implements AfterViewChecked, OnDestroy {
+  @ViewChildren('jacobianCanvas') jacobianCanvases!: QueryList<ElementRef<HTMLCanvasElement>>;
+  private jacobianChartInstances: Chart[] = [];
+  private pendingJacobianRender = false;
   equations = signal<EquationEntry[]>([this.createEquation()]);
   activeEquationIndex = signal(0);
   jacobianMatrix = signal<JacobianCell[][] | null>(null);
@@ -452,7 +461,7 @@ export class CalculatorPageComponent {
               };
               return updated;
             });
-            if (--pending === 0) this.jacobianLoading.set(false);
+            if (--pending === 0) { this.jacobianLoading.set(false); this.pendingJacobianRender = true; }
           },
           error: (err) => {
             this.jacobianMatrix.update(m => {
@@ -466,7 +475,7 @@ export class CalculatorPageComponent {
               };
               return updated;
             });
-            if (--pending === 0) this.jacobianLoading.set(false);
+            if (--pending === 0) { this.jacobianLoading.set(false); this.pendingJacobianRender = true; }
           }
         });
       });
@@ -474,8 +483,92 @@ export class CalculatorPageComponent {
   }
 
   clearJacobian(): void {
+    this.destroyJacobianCharts();
     this.jacobianMatrix.set(null);
     this.jacobianVariables.set([]);
+  }
+
+  ngAfterViewChecked(): void {
+    if (this.pendingJacobianRender && this.jacobianCanvases?.length) {
+      this.pendingJacobianRender = false;
+      this.renderJacobianCharts();
+    }
+  }
+
+  ngOnDestroy(): void {
+    this.destroyJacobianCharts();
+  }
+
+  private destroyJacobianCharts(): void {
+    this.jacobianChartInstances.forEach(c => c.destroy());
+    this.jacobianChartInstances = [];
+  }
+
+  private renderJacobianCharts(): void {
+    this.destroyJacobianCharts();
+    const matrix = this.jacobianMatrix();
+    const variables = this.jacobianVariables();
+    const eqs = this.equations().filter(eq => eq.expression.trim());
+    if (!matrix || !variables.length || !this.jacobianCanvases.length) return;
+
+    const xValues: number[] = [];
+    for (let i = -50; i <= 50; i++) xValues.push(i / 10);
+
+    this.jacobianCanvases.forEach((canvasRef, colIdx) => {
+      const variable = variables[colIdx];
+      const datasets = matrix.map((row, rowIdx) => {
+        const cell = row[colIdx];
+        if (cell.error || cell.loading || !cell.expression) return null;
+        const eq = eqs[rowIdx];
+        const fixedScope: { [key: string]: number } = {};
+        for (const v of eq.variables) {
+          if (v.key.trim() && v.key.trim() !== variable) fixedScope[v.key.trim()] = v.value;
+        }
+        const expr = this.repairExprForMathjs(cell.expression);
+        const data = xValues.map(t => {
+          try {
+            const result = evaluate(expr, { ...fixedScope, [variable]: t });
+            if (typeof result !== 'number' || !isFinite(result) || Math.abs(result) > 50) return null;
+            return result;
+          } catch { return null; }
+        });
+        const color = JAC_COLORS[rowIdx % JAC_COLORS.length];
+        return { label: `∂f${rowIdx + 1}/∂${variable}`, data, borderColor: color,
+          backgroundColor: color + '14', borderWidth: 2, tension: 0.3, pointRadius: 0, spanGaps: false };
+      }).filter(Boolean);
+
+      if (!datasets.length) return;
+      this.jacobianChartInstances.push(new Chart(canvasRef.nativeElement, {
+        type: 'line',
+        data: { labels: xValues.map(x => x.toFixed(1)), datasets: datasets as any },
+        options: {
+          responsive: true, maintainAspectRatio: true, animation: { duration: 300 },
+          plugins: {
+            legend: { position: 'top', labels: { font: { family: 'Roboto', size: 12 }, usePointStyle: true } },
+            title: { display: true, text: `∂f / ∂${variable}`, font: { size: 14 } },
+          },
+          scales: {
+            x: { grid: { color: 'rgba(0,0,0,0.06)' }, ticks: { maxTicksLimit: 11,
+              callback: (_val: any, i: number) => xValues[i] % 1 === 0 ? xValues[i].toString() : '' } },
+            y: { min: -10, max: 10, grid: { color: 'rgba(0,0,0,0.06)' } },
+          }
+        }
+      }));
+    });
+  }
+
+  private repairExprForMathjs(expr: string): string {
+    return expr
+      .replace(/\^\s*\(\s*1\s*\)/g, '')
+      .replace(/\*\s*\*/g, '*')
+      .replace(/\*\s*1\b/g, '')
+      .replace(/\b1\s*\*/g, '')
+      .replace(/\barcsin\(/g, 'asin(')
+      .replace(/\barccos\(/g, 'acos(')
+      .replace(/\barctan\(/g, 'atan(')
+      .replace(/\bln\(/g, 'log(')
+      .replace(/\s+/g, ' ')
+      .trim();
   }
 
   get jacobianEquationLabels(): string[] {

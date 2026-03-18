@@ -397,6 +397,24 @@
   font-size: 0.75rem;
 }
 
+.jacobian-charts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+  margin-top: 20px;
+}
+
+.jacobian-chart-item {
+  background: white;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 12px;
+
+  canvas {
+    max-height: 240px;
+  }
+}
+
 // ── Shared Button Pad ────────────────────────────────────────────────────────
 
 .button-pad-section {

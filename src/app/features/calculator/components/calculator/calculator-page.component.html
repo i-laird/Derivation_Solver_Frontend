@@ -244,6 +244,13 @@
           </tbody>
         </table>
       </div>
+
+      <!-- Jacobian Charts: one per differentiation variable -->
+      <div class="jacobian-charts" *ngIf="jacobianMatrix() && !jacobianLoading()">
+        <div class="jacobian-chart-item" *ngFor="let v of jacobianVariables(); let j = index">
+          <canvas #jacobianCanvas></canvas>
+        </div>
+      </div>
     </div>
 
     <!-- Shared Button Pad -->
