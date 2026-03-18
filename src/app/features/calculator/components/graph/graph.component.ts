@@ -1,4 +1,4 @@
-import { Component, Input, OnChanges, OnDestroy, AfterViewChecked, ViewChild, ElementRef } from '@angular/core';
+import { Component, Input, OnChanges, OnDestroy, ViewChild, ElementRef } from '@angular/core';
 import { Chart, registerables } from 'chart.js';
 import { evaluate, simplify, parse } from 'mathjs';
 import { DerivativeResponse } from '../../../../models/derivative-response.model';
@@ -20,11 +20,18 @@ const CURVE_COLORS = [
   templateUrl: './graph.component.html',
   styleUrls: ['./graph.component.scss']
 })
-export class GraphComponent implements OnChanges, AfterViewChecked, OnDestroy {
+export class GraphComponent implements OnChanges, OnDestroy {
   @Input() expression: string | null = null;
   @Input() derivativeExpressions: DerivativeResponse[] = [];
 
-  @ViewChild('chartCanvas') canvasRef!: ElementRef<HTMLCanvasElement>;
+  private _canvasRef: ElementRef<HTMLCanvasElement> | undefined;
+  @ViewChild('chartCanvas') set canvasRef(el: ElementRef<HTMLCanvasElement>) {
+    this._canvasRef = el;
+    if (el && this.pendingRender && this.hasData) {
+      this.pendingRender = false;
+      setTimeout(() => this.renderChart(), 0);
+    }
+  }
 
   hasData = false;
   curves: { label: string; expression: string; color: string }[] = [];
@@ -42,17 +49,15 @@ export class GraphComponent implements OnChanges, AfterViewChecked, OnDestroy {
           color: CURVE_COLORS[i % CURVE_COLORS.length],
         })),
       ];
+      this.pendingRender = true;
+      if (this._canvasRef) {
+        this.pendingRender = false;
+        setTimeout(() => this.renderChart(), 0);
+      }
     } else {
       this.curves = [];
-      this.destroyChart();
-    }
-    this.pendingRender = true;
-  }
-
-  ngAfterViewChecked(): void {
-    if (this.pendingRender && this.hasData && this.canvasRef) {
       this.pendingRender = false;
-      this.renderChart();
+      this.destroyChart();
     }
   }
 
@@ -118,7 +123,7 @@ export class GraphComponent implements OnChanges, AfterViewChecked, OnDestroy {
   }
 
   private renderChart(): void {
-    if (!this.expression || !this.derivativeExpressions.length || !this.canvasRef) return;
+    if (!this.expression || !this.derivativeExpressions.length || !this._canvasRef) return;
 
     const xValues: number[] = [];
     for (let i = -50; i <= 50; i++) xValues.push(i / 10);
@@ -143,7 +148,7 @@ export class GraphComponent implements OnChanges, AfterViewChecked, OnDestroy {
 
     this.destroyChart();
 
-    this.chart = new Chart(this.canvasRef.nativeElement, {
+    this.chart = new Chart(this._canvasRef.nativeElement, {
       type: 'line',
       data: {
         labels: xValues.map(x => x.toFixed(1)),

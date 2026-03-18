@@ -1,4 +1,4 @@
-import { Component, signal, AfterViewChecked, OnDestroy, ViewChildren, QueryList, ElementRef } from '@angular/core';
+import { Component, signal, computed, AfterViewInit, OnDestroy, ViewChildren, QueryList, ElementRef } from '@angular/core';
 import { DerivativeResponse } from '../../../../models/derivative-response.model';
 import { CalculatorApiService } from '../../../../core/services/calculator-api.service';
 import { Chart, registerables } from 'chart.js';
@@ -49,15 +49,40 @@ const JAC_COLORS = ['#e91e63', '#4caf50', '#ff9800', '#9c27b0', '#00bcd4', '#795
   templateUrl: './calculator-page.component.html',
   styleUrls: ['./calculator-page.component.scss']
 })
-export class CalculatorPageComponent implements AfterViewChecked, OnDestroy {
+export class CalculatorPageComponent implements AfterViewInit, OnDestroy {
   @ViewChildren('jacobianCanvas') jacobianCanvases!: QueryList<ElementRef<HTMLCanvasElement>>;
   private jacobianChartInstances: Chart[] = [];
   private pendingJacobianRender = false;
+  mode = signal<'single' | 'multi'>('single');
   equations = signal<EquationEntry[]>([this.createEquation()]);
+  sharedVariables = signal<VariableEntry[]>([{ key: 'x', value: 0 }]);
   activeEquationIndex = signal(0);
   jacobianMatrix = signal<JacobianCell[][] | null>(null);
   jacobianVariables = signal<string[]>([]);
   jacobianLoading = signal(false);
+
+  /** All unique variables detected across every equation (multi mode). */
+  allMultiVars = computed<string[]>(() =>
+    [...new Set(
+      this.equations()
+        .filter(eq => eq.expression.trim())
+        .flatMap(eq => this.extractVariables(eq.expression))
+    )].sort()
+  );
+
+  evaluateAtSummary = computed(() =>
+    this.sharedVariables()
+      .filter(v => v.key.trim())
+      .map(v => `${v.key} = ${v.value}`)
+      .join(', ')
+  );
+
+  /** True when equation count matches unique variable count (square Jacobian). */
+  isSquareSystem = computed(() => {
+    const filled = this.equations().filter(eq => eq.expression.trim()).length;
+    const vars = this.allMultiVars().length;
+    return vars > 0 && filled === vars;
+  });
 
   readonly buttonGroups: ButtonGroup[] = [
     {
@@ -153,6 +178,17 @@ export class CalculatorPageComponent implements AfterViewChecked, OnDestroy {
     };
   }
 
+  setMode(m: 'single' | 'multi'): void {
+    this.mode.set(m);
+    if (m === 'single') {
+      this.equations.set([this.equations()[0] ?? this.createEquation()]);
+      this.activeEquationIndex.set(0);
+      this.clearJacobian();
+    } else {
+      this.syncSharedVariables();
+    }
+  }
+
   addEquation(): void {
     this.equations.update(eqs => [...eqs, this.createEquation()]);
     this.activeEquationIndex.set(this.equations().length - 1);
@@ -179,7 +215,11 @@ export class CalculatorPageComponent implements AfterViewChecked, OnDestroy {
       updated[idx] = { ...updated[idx], expression: updated[idx].expression + value };
       return updated;
     });
-    this.syncVariables(idx, this.equations()[idx].expression);
+    if (this.mode() === 'single') {
+      this.syncVariables(idx, this.equations()[idx].expression);
+    } else {
+      this.syncSharedVariables();
+    }
   }
 
   backspaceForIndex(index: number): void {
@@ -257,6 +297,20 @@ export class CalculatorPageComponent implements AfterViewChecked, OnDestroy {
       eq.withRespectToError = value.length > 0 && !/^[a-zA-Z]$/.test(value)
         ? 'Must be a single letter (e.g. x, y)'
         : null;
+      // Keep the single variable entry in sync with withRespectTo
+      if (/^[a-zA-Z]$/.test(value)) {
+        eq.variables = [{ key: value, value: eq.variables[0]?.value ?? 0 }];
+      }
+      updated[equationIndex] = eq;
+      return updated;
+    });
+  }
+
+  updateSingleVariableValue(equationIndex: number, value: number): void {
+    this.equations.update(eqs => {
+      const updated = [...eqs];
+      const eq = { ...updated[equationIndex] };
+      eq.variables = [{ key: eq.withRespectTo, value }];
       updated[equationIndex] = eq;
       return updated;
     });
@@ -268,14 +322,21 @@ export class CalculatorPageComponent implements AfterViewChecked, OnDestroy {
       updated[equationIndex] = { ...updated[equationIndex], expression: value };
       return updated;
     });
-    this.syncVariables(equationIndex, value);
+    if (this.mode() === 'single') {
+      this.syncVariables(equationIndex, value);
+    } else {
+      this.syncSharedVariables();
+    }
   }
 
   private static readonly KNOWN_FUNCTIONS =
     /\b(sin|cos|tan|sec|csc|cot|sinh|cosh|tanh|sech|csch|coth|arcsin|arccos|arctan|arcsec|arccsc|arccot|ln|log|sqrt|abs)\b/g;
 
   private extractVariables(expression: string): string[] {
-    const cleaned = expression.replace(CalculatorPageComponent.KNOWN_FUNCTIONS, '');
+    const cleaned = expression
+      .replace(CalculatorPageComponent.KNOWN_FUNCTIONS, '')
+      .replace(/\bpi\b/g, '')
+      .replace(/\be\b/g, '');
     const matches = cleaned.match(/[a-z]/g);
     return matches ? [...new Set(matches)] : [];
   }
@@ -285,14 +346,54 @@ export class CalculatorPageComponent implements AfterViewChecked, OnDestroy {
     this.equations.update(eqs => {
       const updated = [...eqs];
       const eq = { ...updated[equationIndex] };
-      const existingKeys = new Set(eq.variables.map(v => v.key.trim()));
-      const toAdd = detected.filter(v => !existingKeys.has(v));
-      if (toAdd.length > 0) {
-        eq.variables = [...eq.variables, ...toAdd.map(k => ({ key: k, value: 0 }))];
-        updated[equationIndex] = eq;
+      if (detected.length === 1) {
+        eq.withRespectTo = detected[0];
+        eq.withRespectToError = null;
       }
+      // Single variable mode keeps exactly one entry, keyed by withRespectTo
+      const key = eq.withRespectTo || detected[0] || 'x';
+      const existingValue = eq.variables[0]?.value ?? 0;
+      eq.variables = [{ key, value: existingValue }];
+      updated[equationIndex] = eq;
       return updated;
     });
+  }
+
+  private syncSharedVariables(): void {
+    const detected = [
+      ...new Set(
+        this.equations()
+          .flatMap(eq => this.extractVariables(eq.expression))
+      )
+    ].sort();
+    this.sharedVariables.update(existing => {
+      const existingMap = new Map(existing.map(v => [v.key.trim(), v.value]));
+      return detected.map(k => ({ key: k, value: existingMap.get(k) ?? 0 }));
+    });
+  }
+
+  updateSharedVariableKey(varIndex: number, key: string): void {
+    this.sharedVariables.update(vars => {
+      const updated = [...vars];
+      updated[varIndex] = { ...updated[varIndex], key };
+      return updated;
+    });
+  }
+
+  updateSharedVariableValue(varIndex: number, value: number): void {
+    this.sharedVariables.update(vars => {
+      const updated = [...vars];
+      updated[varIndex] = { ...updated[varIndex], value };
+      return updated;
+    });
+  }
+
+  removeSharedVariable(varIndex: number): void {
+    this.sharedVariables.update(vars => vars.filter((_, i) => i !== varIndex));
+  }
+
+  addSharedVariable(): void {
+    this.sharedVariables.update(vars => [...vars, { key: '', value: 0 }]);
   }
 
   private buildPoints(variables: VariableEntry[]): { [key: string]: number } {
@@ -418,6 +519,13 @@ export class CalculatorPageComponent implements AfterViewChecked, OnDestroy {
     return index;
   }
 
+  variableSummary(variables: VariableEntry[]): string {
+    return variables
+      .filter(v => v.key.trim())
+      .map(v => `${v.key} = ${v.value}`)
+      .join(', ');
+  }
+
   computeJacobian(): void {
     const eqs = this.equations();
     const validEqs = eqs.filter(eq => eq.expression.trim());
@@ -446,7 +554,7 @@ export class CalculatorPageComponent implements AfterViewChecked, OnDestroy {
         const request = {
           expression: eq.expression,
           withRespectTo: variable,
-          points: this.buildPoints(eq.variables),
+          points: this.buildPoints(this.sharedVariables()),
         };
         this.calculatorApi.getDerivative(request).subscribe({
           next: (response) => {
@@ -488,11 +596,13 @@ export class CalculatorPageComponent implements AfterViewChecked, OnDestroy {
     this.jacobianVariables.set([]);
   }
 
-  ngAfterViewChecked(): void {
-    if (this.pendingJacobianRender && this.jacobianCanvases?.length) {
-      this.pendingJacobianRender = false;
-      this.renderJacobianCharts();
-    }
+  ngAfterViewInit(): void {
+    this.jacobianCanvases.changes.subscribe((canvases: QueryList<ElementRef<HTMLCanvasElement>>) => {
+      if (this.pendingJacobianRender && canvases.length > 0) {
+        this.pendingJacobianRender = false;
+        setTimeout(() => this.renderJacobianCharts(), 0);
+      }
+    });
   }
 
   ngOnDestroy(): void {
@@ -508,7 +618,6 @@ export class CalculatorPageComponent implements AfterViewChecked, OnDestroy {
     this.destroyJacobianCharts();
     const matrix = this.jacobianMatrix();
     const variables = this.jacobianVariables();
-    const eqs = this.equations().filter(eq => eq.expression.trim());
     if (!matrix || !variables.length || !this.jacobianCanvases.length) return;
 
     const xValues: number[] = [];
@@ -519,9 +628,8 @@ export class CalculatorPageComponent implements AfterViewChecked, OnDestroy {
       const datasets = matrix.map((row, rowIdx) => {
         const cell = row[colIdx];
         if (cell.error || cell.loading || !cell.expression) return null;
-        const eq = eqs[rowIdx];
         const fixedScope: { [key: string]: number } = {};
-        for (const v of eq.variables) {
+        for (const v of this.sharedVariables()) {
           if (v.key.trim() && v.key.trim() !== variable) fixedScope[v.key.trim()] = v.value;
         }
         const expr = this.repairExprForMathjs(cell.expression);

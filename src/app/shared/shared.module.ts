@@ -9,6 +9,7 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatChipsModule } from '@angular/material/chips';
 import { MatDividerModule } from '@angular/material/divider';
+import { MatButtonToggleModule } from '@angular/material/button-toggle';
 import { FormsModule, ReactiveFormsModule } from '@angular/forms';
 
 @NgModule({
@@ -25,6 +26,7 @@ import { FormsModule, ReactiveFormsModule } from '@angular/forms';
     MatTooltipModule,
     MatChipsModule,
     MatDividerModule,
+    MatButtonToggleModule,
   ],
   exports: [
     CommonModule,
@@ -39,6 +41,7 @@ import { FormsModule, ReactiveFormsModule } from '@angular/forms';
     MatTooltipModule,
     MatChipsModule,
     MatDividerModule,
+    MatButtonToggleModule,
   ]
 })
 export class SharedModule {}

@@ -5,6 +5,22 @@
     <div class="calculator-header">
       <h1 class="calculator-title">Derivative Calculator</h1>
       <p class="calculator-subtitle">Enter expressions using the buttons below or type directly</p>
+
+      <mat-button-toggle-group
+        class="mode-toggle"
+        [value]="mode()"
+        (change)="setMode($event.value)"
+        hideSingleSelectionIndicator
+      >
+        <mat-button-toggle value="single">
+          <mat-icon>functions</mat-icon>
+          Single Variable
+        </mat-button-toggle>
+        <mat-button-toggle value="multi">
+          <mat-icon>grid_on</mat-icon>
+          Multivariable
+        </mat-button-toggle>
+      </mat-button-toggle-group>
     </div>
 
     <!-- Equation Panels -->
@@ -56,10 +72,11 @@
           </mat-form-field>
         </div>
 
-        <!-- Differentiate With Respect To -->
-        <div class="wrt-section">
+        <!-- Controls row (single mode only) -->
+        <div class="equation-controls" *ngIf="mode() === 'single'">
+          <!-- wrt -->
           <mat-form-field appearance="outline" class="wrt-field">
-            <mat-label>Differentiate with respect to</mat-label>
+            <mat-label>d/d</mat-label>
             <input
               matInput
               [value]="eq.withRespectTo"
@@ -72,60 +89,25 @@
             />
             <mat-error *ngIf="eq.withRespectToError">{{ eq.withRespectToError }}</mat-error>
           </mat-form-field>
-        </div>
 
-        <!-- Variable Values -->
-        <div class="variables-section">
-          <div class="variables-label">Evaluate at:</div>
-          <div class="variable-entries">
-            <div class="variable-entry" *ngFor="let v of eq.variables; let vi = index; trackBy: trackByIndex">
-              <mat-form-field appearance="outline" class="var-key-field">
-                <mat-label>Variable</mat-label>
-                <input
-                  matInput
-                  [value]="v.key"
-                  (input)="updateVariableKey(i, vi, $any($event.target).value)"
-                  (focus)="setActiveEquation(i)"
-                  placeholder="x"
-                  maxlength="1"
-                  autocomplete="off"
-                />
-              </mat-form-field>
-              <span class="var-equals">=</span>
-              <mat-form-field appearance="outline" class="var-value-field">
-                <mat-label>Value</mat-label>
-                <input
-                  matInput
-                  type="number"
-                  [value]="v.value"
-                  (input)="updateVariableValue(i, vi, +$any($event.target).value)"
-                  (focus)="setActiveEquation(i)"
-                  placeholder="0"
-                  autocomplete="off"
-                />
-              </mat-form-field>
-              <button
-                mat-icon-button
-                class="remove-var-btn"
-                (click)="$event.stopPropagation(); removeVariable(i, vi)"
-                matTooltip="Remove variable"
-              >
-                <mat-icon>remove_circle_outline</mat-icon>
-              </button>
-            </div>
-          </div>
-          <button
-            mat-stroked-button
-            class="add-var-btn"
-            (click)="$event.stopPropagation(); addVariable(i)"
-          >
-            <mat-icon>add</mat-icon>
-            Add Variable
-          </button>
-        </div>
+          <!-- Evaluation point -->
+          <mat-form-field appearance="outline" class="eval-field">
+            <mat-label>at {{ eq.withRespectTo }} =</mat-label>
+            <input
+              matInput
+              type="number"
+              [value]="eq.variables[0]?.value ?? 0"
+              (input)="updateSingleVariableValue(i, +$any($event.target).value)"
+              (focus)="setActiveEquation(i)"
+              placeholder="0"
+              autocomplete="off"
+            />
+          </mat-form-field>
 
-        <!-- Action Buttons -->
-        <div class="action-buttons">
+          <!-- Spacer -->
+          <span class="controls-spacer"></span>
+
+          <!-- Action buttons -->
           <button
             mat-stroked-button
             color="warn"
@@ -145,15 +127,15 @@
           >
             <mat-spinner *ngIf="eq.loading" diameter="18" class="btn-spinner"></mat-spinner>
             <mat-icon *ngIf="!eq.loading">functions</mat-icon>
-            {{ eq.loading ? 'Computing...' : 'Calculate Derivative' }}
+            {{ eq.loading ? 'Computing...' : 'Calculate' }}
           </button>
         </div>
 
         <!-- Results -->
-        <app-results [result]="eq.result" [loading]="eq.loading" [error]="eq.error"></app-results>
+        <app-results *ngIf="mode() === 'single'" [result]="eq.result" [loading]="eq.loading" [error]="eq.error"></app-results>
 
         <!-- Next Derivative Button -->
-        <div class="next-derivative-row" *ngIf="eq.derivatives.length">
+        <div class="next-derivative-row" *ngIf="mode() === 'single' && eq.derivatives.length">
           <button
             mat-stroked-button
             class="next-derivative-btn"
@@ -166,8 +148,9 @@
           </button>
         </div>
 
-        <!-- Graph -->
+        <!-- Graph (single-variable mode only) -->
         <app-graph
+          *ngIf="mode() === 'single'"
           [expression]="eq.expression"
           [derivativeExpressions]="eq.derivatives"
         ></app-graph>
@@ -175,8 +158,17 @@
       </div>
     </div>
 
-    <!-- Add Equation Button -->
-    <div class="add-equation-row">
+    <!-- Add Equation Button (multi mode only) -->
+    <div class="add-equation-row" *ngIf="mode() === 'multi'">
+      <div class="system-status" [class.system-status--ok]="isSquareSystem()" [class.system-status--warn]="!isSquareSystem() && allMultiVars().length > 0">
+        <mat-icon>{{ isSquareSystem() ? 'check_circle' : 'info' }}</mat-icon>
+        <span *ngIf="allMultiVars().length === 0">Add equations with variables to begin.</span>
+        <span *ngIf="allMultiVars().length > 0">
+          {{ equations().filter(e => e.expression.trim()).length }} / {{ allMultiVars().length }} equations
+          <ng-container *ngIf="!isSquareSystem()"> — needs {{ allMultiVars().length }} to match {{ allMultiVars().join(', ') }}</ng-container>
+          <ng-container *ngIf="isSquareSystem()"> — square system ready</ng-container>
+        </span>
+      </div>
       <button
         mat-stroked-button
         class="add-equation-btn"
@@ -187,8 +179,8 @@
       </button>
     </div>
 
-    <!-- Jacobian -->
-    <div class="jacobian-section" *ngIf="equations().length >= 1">
+    <!-- Jacobian (multi mode only) -->
+    <div class="jacobian-section" *ngIf="mode() === 'multi'">
       <div class="jacobian-header">
         <div class="jacobian-title">
           <mat-icon>grid_on</mat-icon>
@@ -200,7 +192,8 @@
             color="accent"
             class="jacobian-btn"
             (click)="computeJacobian()"
-            [disabled]="jacobianLoading()"
+            [disabled]="jacobianLoading() || !isSquareSystem()"
+            [matTooltip]="!isSquareSystem() ? 'Add ' + allMultiVars().length + ' equations matching your variables' : ''"
           >
             <mat-spinner *ngIf="jacobianLoading()" diameter="18" class="btn-spinner"></mat-spinner>
             <mat-icon *ngIf="!jacobianLoading()">calculate</mat-icon>
@@ -218,8 +211,56 @@
         </div>
       </div>
       <p class="jacobian-hint">
-        Computes ∂f<sub>i</sub>/∂x<sub>j</sub> for every equation × every variable at each equation's evaluation point.
+        Computes ∂f<sub>i</sub>/∂x<sub>j</sub> for every equation × every variable at the point below.
       </p>
+
+      <!-- Shared Evaluation Point -->
+      <div class="shared-variables-section">
+        <div class="shared-variables-label">
+          <mat-icon>pin_drop</mat-icon>
+          Evaluate at
+          <span *ngIf="evaluateAtSummary()" class="evaluate-at-summary">( {{ evaluateAtSummary() }} )</span>
+        </div>
+        <div class="variable-entries">
+          <div class="variable-entry" *ngFor="let v of sharedVariables(); let vi = index; trackBy: trackByIndex">
+            <mat-form-field appearance="outline" class="var-key-field">
+              <mat-label>Variable</mat-label>
+              <input
+                matInput
+                [value]="v.key"
+                (input)="updateSharedVariableKey(vi, $any($event.target).value)"
+                placeholder="x"
+                maxlength="1"
+                autocomplete="off"
+              />
+            </mat-form-field>
+            <span class="var-equals">=</span>
+            <mat-form-field appearance="outline" class="var-value-field">
+              <mat-label>Value</mat-label>
+              <input
+                matInput
+                type="number"
+                [value]="v.value"
+                (input)="updateSharedVariableValue(vi, +$any($event.target).value)"
+                placeholder="0"
+                autocomplete="off"
+              />
+            </mat-form-field>
+            <button
+              mat-icon-button
+              class="remove-var-btn"
+              (click)="removeSharedVariable(vi)"
+              matTooltip="Remove variable"
+            >
+              <mat-icon>remove_circle_outline</mat-icon>
+            </button>
+          </div>
+        </div>
+        <button mat-stroked-button class="add-var-btn" (click)="addSharedVariable()">
+          <mat-icon>add</mat-icon>
+          Add Variable
+        </button>
+      </div>
 
       <div class="jacobian-table-wrapper" *ngIf="jacobianMatrix()">
         <table class="jacobian-table">
